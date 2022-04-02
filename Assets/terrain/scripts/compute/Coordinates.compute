@@ -1,0 +1,7 @@
+
+
+
+float2 calculatePosition(uint3 id, int N, float size)
+{
+	return size * (id.xy / (N - 1.) - 0.5);
+}

@@ -3,30 +3,41 @@ using System.Collections.Generic;
 using UnityEngine;
 
 [System.Serializable]
+public class NoiseSettings
+{
+    public int octaves = 5;
+    public float amplitude = 1f;
+    public float scale = 0.1f;
+    public float persistence = 0.5f;
+    public float lacunarity = 2f;
+}
+
+[System.Serializable]
 public class TerrainSettings
 {
-    public float size;
-    public int resolution;
+    public int seed = 0;
 
-    public TerrainSettings(float size, int resolution)
-    {
-        this.size = size;
-        this.resolution = resolution;
-    }
+    public float chunkSize = 10f;
+    public int chunkResolution = 64;
+
+    public NoiseSettings baseHeight;
+    public NoiseSettings ridgeHeight;
+
+    public float ridgeOffset = 0.5f;
+
+    public bool displayRidge = false;
 }
 
 public class TerrainGenerator : MonoBehaviour
 {
-    public TerrainSettings terrainSettings = new TerrainSettings(10f, 64);
-    
-    public Material terrainMaterial;
+    public TerrainSettings terrainSettings;
+
+    public bool autoUpdate;
 
     public ComputeShader meshGridCompute;
     public ComputeShader heightMapCompute;
-    
-    [HideInInspector] public RenderTexture heightMap;
 
-    private GameObject terrain;
+    public Shader terrainShader;
 
     //// https://github.com/SebLague/Terraforming/blob/main/Assets/Marching%20Cubes/Scripts/GenTest.cs
     //void Create3DTexture(RenderTexture texture, int size, string name)
@@ -57,54 +68,92 @@ public class TerrainGenerator : MonoBehaviour
 
     public RenderTexture GenerateHeightMap(TerrainSettings settings)
     {
-        if (heightMap) heightMap.Release();
-
-        heightMap = new RenderTexture(settings.resolution, settings.resolution, 1)
+        var heightMap = new RenderTexture(settings.chunkResolution, settings.chunkResolution, 1)
         {
             enableRandomWrite = true,
+            format = RenderTextureFormat.RFloat,
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Repeat,
         };
 
         int heightMapKernel = 0;
 
+        heightMapCompute.SetInt("seed", settings.seed);
+        heightMapCompute.SetInt("N", settings.chunkResolution);
+        heightMapCompute.SetFloat("size", settings.chunkSize);
+
         heightMapCompute.SetTexture(heightMapKernel, "HeightMap", heightMap);
 
-        ComputeHelper.Dispatch(heightMapCompute, settings.resolution, settings.resolution);
+        heightMapCompute.SetInt("base_octaves", settings.baseHeight.octaves);
+        heightMapCompute.SetFloat("base_amplitude", settings.baseHeight.amplitude);
+        heightMapCompute.SetFloat("base_scale", settings.baseHeight.scale);
+        heightMapCompute.SetFloat("base_persistence", settings.baseHeight.persistence);
+        heightMapCompute.SetFloat("base_lacunarity", settings.baseHeight.lacunarity);
+
+        heightMapCompute.SetInt("ridge_octaves", settings.ridgeHeight.octaves);
+        heightMapCompute.SetFloat("ridge_amplitude", settings.ridgeHeight.amplitude);
+        heightMapCompute.SetFloat("ridge_scale", settings.ridgeHeight.scale);
+        heightMapCompute.SetFloat("ridge_persistence", settings.ridgeHeight.persistence);
+        heightMapCompute.SetFloat("ridge_lacunarity", settings.ridgeHeight.lacunarity);
+
+        heightMapCompute.SetFloat("ridgeOffset", settings.ridgeOffset);
+        heightMapCompute.SetBool("displayRidge", settings.displayRidge);
+
+        ComputeHelper.Dispatch(heightMapCompute, settings.chunkResolution, settings.chunkResolution);
 
         return heightMap;
     }
 
     public Mesh GenerateMesh(TerrainSettings settings, RenderTexture heightMap)
     {
-        int N = settings.resolution;
+        int N = settings.chunkResolution;
 
         int vertBufferLength = N * N;
         int triBufferLength = 6 * (N - 1) * (N - 1);
 
         ComputeBuffer vertBuffer = new ComputeBuffer(vertBufferLength, 3 * sizeof(float));
+        ComputeBuffer normalBuffer = new ComputeBuffer(vertBufferLength, 3 * sizeof(float));
         ComputeBuffer triBuffer = new ComputeBuffer(triBufferLength, sizeof(int));
 
         int meshGridKernel = 0;
 
-        meshGridCompute.SetBuffer(meshGridKernel, "verts", vertBuffer);
-        meshGridCompute.SetBuffer(meshGridKernel, "tris", triBuffer);
-        
+        meshGridCompute.SetTexture(meshGridKernel, "HeightMap", heightMap);
+
+        meshGridCompute.SetBuffer(meshGridKernel, "vertices", vertBuffer);
+        meshGridCompute.SetBuffer(meshGridKernel, "normals", normalBuffer);
+        meshGridCompute.SetBuffer(meshGridKernel, "triangles", triBuffer);
+
         meshGridCompute.SetInt("N", N);
-        meshGridCompute.SetFloat("size", settings.size);
+        meshGridCompute.SetFloat("size", settings.chunkSize);
 
         ComputeHelper.Dispatch(meshGridCompute, N, N);
 
         var mesh = new Mesh();
 
-        vertBuffer.GetData(mesh.vertices, 0, 0, vertBufferLength);
-        triBuffer.GetData(mesh.triangles, 0, 0, triBufferLength);
+        Vector3[] verts = new Vector3[vertBufferLength];
+        Vector3[] normals = new Vector3[vertBufferLength];
+        int[] tris = new int[triBufferLength];
+
+        vertBuffer.GetData(verts, 0, 0, vertBufferLength);
+        normalBuffer.GetData(normals, 0, 0, vertBufferLength);
+        triBuffer.GetData(tris, 0, 0, triBufferLength);
+
+        vertBuffer.Dispose();
+        normalBuffer.Dispose();
+        triBuffer.Dispose();
+
+        mesh.vertices = verts;
+        mesh.normals = normals;
+        mesh.triangles = tris;
 
         mesh.RecalculateBounds();
+
         mesh.RecalculateNormals();
 
         return mesh;
     }
 
-    public void Generate()
+    public void DestroyOldTerrains()
     {
         string name = "terrain";
 
@@ -117,13 +166,14 @@ public class TerrainGenerator : MonoBehaviour
                 DestroyImmediate(child);
             }
         }
+    }
 
-        if (terrain != null)
-        {
-            DestroyImmediate(terrain);
-        }
+    public void Generate()
+    {
+        DestroyOldTerrains();
 
-        terrain = new GameObject(name);
+        GameObject terrain = new GameObject("Editor terrain");
+        terrain.transform.parent = transform;
 
         var heightMap = GenerateHeightMap(terrainSettings);
 
@@ -131,13 +181,24 @@ public class TerrainGenerator : MonoBehaviour
         mf.mesh = GenerateMesh(terrainSettings, heightMap);
 
         var mr = terrain.AddComponent<MeshRenderer>();
+
+        var terrainMaterial = new Material(terrainShader);
+
+        terrainMaterial.SetTexture("HeightMap", heightMap);
+        
+        
         mr.material = terrainMaterial;
 
-        terrain.transform.parent = transform;
+        heightMap.Release();
     }
 
     void Start()
     {
-        Generate();
+        DestroyOldTerrains();
+    }
+
+    private void Update()
+    {
+        
     }
 }

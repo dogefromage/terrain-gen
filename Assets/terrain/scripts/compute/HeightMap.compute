@@ -1,9 +1,74 @@
 #pragma kernel CSMain
+#include "Includes/Noise.compute"
+#include "Coordinates.compute"
+
+int seed;
+int N;
+float size;
 
 RWTexture2D<float> HeightMap;
+
+int base_octaves;
+float base_amplitude;
+float base_scale;
+float base_persistence;
+float base_lacunarity;
+
+int ridge_octaves;
+float ridge_amplitude;
+float ridge_scale;
+float ridge_persistence;
+float ridge_lacunarity;
+
+float ridgeOffset;
+bool displayRidge;
+
+float ridge(float baseHeight, float ridgeHeight)
+{
+    return 2 * (ridgeHeight - abs(baseHeight - ridgeHeight));
+}
+
+float octaveNoise(float2 pos, int octaves, float persistence, float lacunarity)
+{
+    if (octaves <= 0) return 0;
+
+    float a = 1;
+    float s = 1;
+
+    float noiseSum = 0;
+    float ampSum = 0;
+
+    pos += ((0.123456 + seed) * float2(-12.013, 64.134)) % float2(8991.4546, 1343.351);
+
+    for (int o = 0; o < octaves; o++)
+    {
+        noiseSum += a * snoise(float3(s * pos, 0));
+        ampSum += a;
+
+        a *= persistence;
+        s *= lacunarity;
+    }
+
+    return noiseSum / ampSum;
+}
 
 [numthreads(8,8,1)]
 void CSMain (uint3 id : SV_DispatchThreadID)
 {
-    HeightMap[id.xy] = (id.x & 15) / 15.0 + (id.y & 15) / 15.0;
+    if (id.x >= N || id.y >= N) return;
+
+    float2 pos = calculatePosition(id, N, size);
+
+    float ridgeNoise = ridge_amplitude * octaveNoise(ridge_scale * pos, ridge_octaves, ridge_persistence, ridge_lacunarity);
+    float ridgeHeight = ridgeNoise + ridgeOffset;
+    
+    float baseHeight = base_amplitude * octaveNoise(base_scale * pos, base_octaves, base_persistence, base_lacunarity);
+
+    if (displayRidge)
+    {
+        HeightMap[id.xy] = ridgeHeight;
+        return;
+    }
+
+    HeightMap[id.xy] = ridge(baseHeight, ridgeHeight);
 }

@@ -1,9 +1,11 @@
 #pragma kernel CSMain
+#include "Coordinates.compute"
 
-//Texture2D<float> HeightMap;
+Texture2D<float> HeightMap;
 
-RWStructuredBuffer<float3> verts;
-RWStructuredBuffer<int> tris;
+RWStructuredBuffer<float3> vertices;
+RWStructuredBuffer<float3> normals;
+RWStructuredBuffer<uint> triangles;
 
 int N;
 float size;
@@ -11,21 +13,28 @@ float size;
 [numthreads(8,8,1)]
 void CSMain (uint3 id : SV_DispatchThreadID)
 {
-    float2 pos = size * (id.xy / (N - 1.) - 0.5);
+    if (id.x >= N || id.y >= N) return;
 
-    float3 vert = float3(pos.x, 0, pos.y);
+    float2 pos = calculatePosition(id, N, size);
 
-    verts[N * id.y + id.x] = vert;
+    float height = HeightMap[id.xy];
 
-    //if (z < N - 1 && x < N - 1)
-    //{
-    //    tris[triCounter + 0] = vertCounter;
-    //    tris[triCounter + 1] = vertCounter + N;
-    //    tris[triCounter + 2] = vertCounter + 1;
-    //    tris[triCounter + 3] = vertCounter + N + 1;
-    //    tris[triCounter + 4] = vertCounter + 1;
-    //    tris[triCounter + 5] = vertCounter + N;
+    float3 vert = float3(pos.x, height, pos.y);
 
-    //    triCounter += 6;
-    //}
+    int vertIndex = N * id.y + id.x;
+
+    vertices[vertIndex] = vert;
+    normals[vertIndex] = float3(0, 1., 0);
+
+    if (id.y < N - 1 && id.x < N - 1)
+    {
+        int triIndex = 6 * ( (N - 1) * id.y + id.x );
+        
+        triangles[triIndex + 0] = vertIndex;
+        triangles[triIndex + 1] = vertIndex + N;
+        triangles[triIndex + 2] = vertIndex + 1;
+        triangles[triIndex + 3] = vertIndex + N + 1;
+        triangles[triIndex + 4] = vertIndex + 1;
+        triangles[triIndex + 5] = vertIndex + N;
+    }
 }
