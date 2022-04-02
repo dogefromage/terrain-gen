@@ -1,0 +1,31 @@
+#pragma kernel CSMain
+
+//Texture2D<float> HeightMap;
+
+RWStructuredBuffer<float3> verts;
+RWStructuredBuffer<int> tris;
+
+int N;
+float size;
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    float2 pos = size * (id.xy / (N - 1.) - 0.5);
+
+    float3 vert = float3(pos.x, 0, pos.y);
+
+    verts[N * id.y + id.x] = vert;
+
+    //if (z < N - 1 && x < N - 1)
+    //{
+    //    tris[triCounter + 0] = vertCounter;
+    //    tris[triCounter + 1] = vertCounter + N;
+    //    tris[triCounter + 2] = vertCounter + 1;
+    //    tris[triCounter + 3] = vertCounter + N + 1;
+    //    tris[triCounter + 4] = vertCounter + 1;
+    //    tris[triCounter + 5] = vertCounter + N;
+
+    //    triCounter += 6;
+    //}
+}
