@@ -1,0 +1,84 @@
+#pragma kernel CSMain
+
+Texture2D<float> HeightMap;
+uint heightMapN;
+uint heightMapSeam;
+
+float size;
+
+SamplerState linearClampSampler;
+
+RWTexture2D<float4> Texture;
+uint resolution;
+
+float minHeight;
+float maxHeight;
+
+struct HeightColor
+{
+    float4 color;
+    float height;
+    float blend;
+};
+
+int heightColorCount;
+StructuredBuffer<HeightColor> HeightColors;
+
+int steepColorCount;
+StructuredBuffer<HeightColor> SteepColors;
+
+float steepBlendStart;
+float steepBlendEnd;
+
+float inverseLerp(float a, float b, float t)
+{
+    return saturate((t - a) / (b - a));
+}
+
+float sampleHeight(float2 uv)
+{
+    float2 heightMapUv = (uv * heightMapN + heightMapSeam) / (2 * heightMapSeam + heightMapN);
+    return HeightMap.SampleLevel(linearClampSampler, heightMapUv, 0);
+}
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= resolution || id.y >= resolution) return;
+
+    float2 uv = id.xy / float(resolution + 1.);
+    float normHeight = inverseLerp(minHeight, maxHeight, sampleHeight(uv));
+
+    //float2 offset = float2(size , 0);
+
+    //float3 perpendicular = cross(
+    //    calcVert(id.xy + int2(0, 1)) - calcVert(id.xy - int2(0, 1)),
+    //    calcVert(id.xy + int2(1, 0)) - calcVert(id.xy - int2(1, 0))
+    //);
+
+    float4 baseColor = float4(0, 0, 0, 1);
+
+    for (int i = 0; i < heightColorCount; i++)
+    {
+        HeightColor hc = HeightColors[i];
+        float normHeight = inverseLerp(minHeight, maxHeight, rawHeight);
+        float blend = saturate(hc.blend * (normHeight - hc.height));
+
+        baseColor = (1 - blend) * baseColor + blend * hc.color;
+    }
+
+    float4 steepColor = float4(0, 0, 0, 1);
+
+    for (int i = 0; i < steepColorCount; i++)
+    {
+        HeightColor hc = SteepColors[i];
+        float normHeight = inverseLerp(minHeight, maxHeight, rawHeight);
+        float blend = saturate(hc.blend * (normHeight - hc.height));
+
+        steepColor = (1 - blend) * steepColor + blend * hc.color;
+    }
+
+    
+
+    Texture[id.xy] = c;
+}

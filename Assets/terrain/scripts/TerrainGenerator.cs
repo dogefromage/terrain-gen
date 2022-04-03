@@ -13,19 +13,77 @@ public class NoiseSettings
 }
 
 [System.Serializable]
+public struct HeightColor
+{
+    public Color color;
+    public float height;
+    public float blend;
+}
+
+[System.Serializable]
+public class TextureSettings
+{
+    public int resolution = 512;
+
+    public float minHeight = -10;
+    public float maxHeight = 10;
+
+    public float steepBlendStart = 1;
+    public float steepBlendEnd = 2;
+
+    public HeightColor[] heightColors;
+    public HeightColor[] steepColors;
+}
+
+[System.Serializable]
+public class TerrainLOD
+{
+    public int resolution = 128;
+    public float screenRelativeHeight = 1f;
+}
+
+[System.Serializable]
 public class TerrainSettings
 {
+    [Header("General")]
     public int seed = 0;
-
     public float chunkSize = 10f;
-    public int chunkResolution = 64;
+    public int baseMeshResolution = 256;
 
+    [Range(0, 5)]
+    public int numberOfLODS = 3;
+
+    [Header("Generation")]
     public NoiseSettings baseHeight;
     public NoiseSettings ridgeHeight;
 
     public float ridgeOffset = 0.5f;
-
     public bool displayRidge = false;
+
+    public bool recalcNormals = false;
+
+    [Header("Texturing")]
+    public TextureSettings textureSettings;
+
+    [Header("Loading")]
+    public Transform worldCenter;
+    public float loadDistance = 150f;
+    public float unloadDistance = 200f;
+    public bool displayBounds = false;
+}
+
+public class Chunk
+{
+    public Vector2Int position;
+    public GameObject go;
+}
+
+public class HeightMap
+{
+    public RenderTexture texture;
+    public int textureResolution;
+    public int baseN;
+    public int seam;
 }
 
 public class TerrainGenerator : MonoBehaviour
@@ -36,39 +94,19 @@ public class TerrainGenerator : MonoBehaviour
 
     public ComputeShader meshGridCompute;
     public ComputeShader heightMapCompute;
+    public ComputeShader albedoCompute;
 
-    public Shader terrainShader;
+    public Material terrainMaterial;
 
-    //// https://github.com/SebLague/Terraforming/blob/main/Assets/Marching%20Cubes/Scripts/GenTest.cs
-    //void Create3DTexture(RenderTexture texture, int size, string name)
-    //{
-    //    var format = UnityEngine.Experimental.Rendering.GraphicsFormat.R32_SFloat;
+    private Dictionary<Vector2Int, Chunk> chunks = new Dictionary<Vector2Int, Chunk>();
 
-    //    if (texture == null || !texture.IsCreated() || texture.width != size || texture.height != size || texture.volumeDepth != size || texture.graphicsFormat != format)
-    //    {
-    //        //Debug.Log ("Create tex: update noise: " + updateNoise);
-    //        if (texture != null)
-    //        {
-    //            texture.Release();
-    //        }
-    //        const int numBitsInDepthBuffer = 0;
-    //        texture = new RenderTexture(size, size, numBitsInDepthBuffer);
-    //        texture.graphicsFormat = format;
-    //        texture.volumeDepth = size;
-    //        texture.enableRandomWrite = true;
-    //        texture.dimension = UnityEngine.Rendering.TextureDimension.Tex3D;
-
-
-    //        texture.Create();
-    //    }
-    //    texture.wrapMode = TextureWrapMode.Repeat;
-    //    texture.filterMode = FilterMode.Bilinear;
-    //    texture.name = name;
-    //}
-
-    public RenderTexture GenerateHeightMap(TerrainSettings settings)
+    private HeightMap GenerateHeightMap(TerrainSettings settings, Vector2Int chunk)
     {
-        var heightMap = new RenderTexture(settings.chunkResolution, settings.chunkResolution, 1)
+        int N = 1 + Mathf.ClosestPowerOfTwo(settings.baseMeshResolution);
+        int seam = Mathf.FloorToInt(Mathf.Pow(2, settings.numberOfLODS));
+        int textureRes = N + 2 * seam;
+
+        var heightMap = new RenderTexture(textureRes, textureRes, 1)
         {
             enableRandomWrite = true,
             format = RenderTextureFormat.RFloat,
@@ -78,11 +116,16 @@ public class TerrainGenerator : MonoBehaviour
 
         int heightMapKernel = 0;
 
-        heightMapCompute.SetInt("seed", settings.seed);
-        heightMapCompute.SetInt("N", settings.chunkResolution);
+        heightMapCompute.SetInt("N", N);
+        heightMapCompute.SetInt("seam", seam);
+        heightMapCompute.SetInt("textureRes", textureRes);
         heightMapCompute.SetFloat("size", settings.chunkSize);
 
+        heightMapCompute.SetInts("chunk", chunk.x, chunk.y);
+
         heightMapCompute.SetTexture(heightMapKernel, "HeightMap", heightMap);
+
+        heightMapCompute.SetInt("seed", settings.seed);
 
         heightMapCompute.SetInt("base_octaves", settings.baseHeight.octaves);
         heightMapCompute.SetFloat("base_amplitude", settings.baseHeight.amplitude);
@@ -99,31 +142,47 @@ public class TerrainGenerator : MonoBehaviour
         heightMapCompute.SetFloat("ridgeOffset", settings.ridgeOffset);
         heightMapCompute.SetBool("displayRidge", settings.displayRidge);
 
-        ComputeHelper.Dispatch(heightMapCompute, settings.chunkResolution, settings.chunkResolution);
+        ComputeHelper.Dispatch(heightMapCompute, textureRes, textureRes);
 
-        return heightMap;
+        HeightMap hm = new HeightMap()
+        {
+            texture = heightMap,
+            baseN = N,
+            seam = seam,
+            textureResolution = textureRes,
+        };
+
+        return hm;
     }
 
-    public Mesh GenerateMesh(TerrainSettings settings, RenderTexture heightMap)
+    private Mesh GenerateMesh(TerrainSettings settings, HeightMap heightMap, int LOD)
     {
-        int N = settings.chunkResolution;
+        int step = Mathf.RoundToInt(Mathf.Pow(2, LOD));
+        int N = Mathf.ClosestPowerOfTwo(settings.baseMeshResolution) / step + 1;
+
+        if (N < 2) return new Mesh();
 
         int vertBufferLength = N * N;
         int triBufferLength = 6 * (N - 1) * (N - 1);
 
         ComputeBuffer vertBuffer = new ComputeBuffer(vertBufferLength, 3 * sizeof(float));
         ComputeBuffer normalBuffer = new ComputeBuffer(vertBufferLength, 3 * sizeof(float));
+        ComputeBuffer uvsBuffer = new ComputeBuffer(vertBufferLength, 2 * sizeof(float));
         ComputeBuffer triBuffer = new ComputeBuffer(triBufferLength, sizeof(int));
 
         int meshGridKernel = 0;
 
-        meshGridCompute.SetTexture(meshGridKernel, "HeightMap", heightMap);
+        meshGridCompute.SetTexture(meshGridKernel, "HeightMap", heightMap.texture);
 
         meshGridCompute.SetBuffer(meshGridKernel, "vertices", vertBuffer);
         meshGridCompute.SetBuffer(meshGridKernel, "normals", normalBuffer);
+        meshGridCompute.SetBuffer(meshGridKernel, "uvs", uvsBuffer);
         meshGridCompute.SetBuffer(meshGridKernel, "triangles", triBuffer);
 
         meshGridCompute.SetInt("N", N);
+        meshGridCompute.SetInt("step", step);
+        meshGridCompute.SetInt("seam", heightMap.seam);
+
         meshGridCompute.SetFloat("size", settings.chunkSize);
 
         ComputeHelper.Dispatch(meshGridCompute, N, N);
@@ -132,30 +191,85 @@ public class TerrainGenerator : MonoBehaviour
 
         Vector3[] verts = new Vector3[vertBufferLength];
         Vector3[] normals = new Vector3[vertBufferLength];
+        Vector2[] uvs = new Vector2[vertBufferLength];
         int[] tris = new int[triBufferLength];
 
         vertBuffer.GetData(verts, 0, 0, vertBufferLength);
         normalBuffer.GetData(normals, 0, 0, vertBufferLength);
+        uvsBuffer.GetData(uvs, 0, 0, vertBufferLength);
         triBuffer.GetData(tris, 0, 0, triBufferLength);
 
         vertBuffer.Dispose();
         normalBuffer.Dispose();
+        uvsBuffer.Dispose();
         triBuffer.Dispose();
+
+        if (vertBufferLength > 65535) mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
 
         mesh.vertices = verts;
         mesh.normals = normals;
+        mesh.uv = uvs;
         mesh.triangles = tris;
 
-        mesh.RecalculateBounds();
+        if (terrainSettings.recalcNormals)
+        {
+            mesh.RecalculateNormals();
+        }
 
-        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
 
         return mesh;
     }
 
-    public void DestroyOldTerrains()
+    private RenderTexture GenerateAlbedo(HeightMap heightMap)
     {
-        string name = "terrain";
+        int resolution = terrainSettings.textureSettings.resolution;
+
+        var rt = new RenderTexture(resolution, resolution, 1)
+        {
+            enableRandomWrite = true,
+            format = RenderTextureFormat.ARGBFloat,
+        };
+
+        int albedoKernel = 0;
+
+        albedoCompute.SetTexture(albedoKernel, "HeightMap", heightMap.texture);
+        albedoCompute.SetInt("heightMapN", heightMap.baseN);
+        albedoCompute.SetInt("heightMapSeam", heightMap.seam);
+
+        albedoCompute.SetFloat("size", terrainSettings.chunkSize);
+
+        albedoCompute.SetTexture(albedoKernel, "Texture", rt);
+        albedoCompute.SetInt("resolution", resolution);
+        albedoCompute.SetFloat("minHeight", terrainSettings.textureSettings.minHeight);
+        albedoCompute.SetFloat("maxHeight", terrainSettings.textureSettings.maxHeight);
+
+        albedoCompute.SetFloat("steepBlendStart", terrainSettings.textureSettings.steepBlendStart);
+        albedoCompute.SetFloat("steepBlendEnd", terrainSettings.textureSettings.steepBlendEnd);
+
+        int heightColorCount = terrainSettings.textureSettings.heightColors.Length;
+        ComputeBuffer heightColorBuffer = new ComputeBuffer(heightColorCount, 6 * sizeof(float));
+        heightColorBuffer.SetData(terrainSettings.textureSettings.heightColors);
+        albedoCompute.SetBuffer(albedoKernel, "HeightColors", heightColorBuffer);
+        albedoCompute.SetInt("heightColorCount", heightColorCount);
+
+        int steepColorCount = terrainSettings.textureSettings.steepColors.Length;
+        ComputeBuffer steepColorBuffer = new ComputeBuffer(steepColorCount, 6 * sizeof(float));
+        steepColorBuffer.SetData(terrainSettings.textureSettings.steepColors);
+        albedoCompute.SetBuffer(albedoKernel, "SteepColors", steepColorBuffer);
+        albedoCompute.SetInt("steepColorCount", steepColorCount);
+
+        ComputeHelper.Dispatch(albedoCompute, resolution, resolution);
+
+        heightColorBuffer.Dispose();
+        steepColorBuffer.Dispose();
+
+        return rt;
+    }
+
+    private void DestroyOldTerrains()
+    {
+        string name = "Terrain";
 
         for (int i = 0; i < transform.childCount; i++)
         {
@@ -163,42 +277,151 @@ public class TerrainGenerator : MonoBehaviour
 
             if (child.name.Contains(name))
             {
-                DestroyImmediate(child);
+                if (Application.isPlaying)
+                {
+                    for (int j = 0; j < child.transform.childCount; j++)
+                    {
+                        Destroy(child.transform.GetChild(j).gameObject);
+                    }
+
+                    Destroy(child);
+                }
+                else
+                {
+                    for (int j = 0; j < child.transform.childCount; j++)
+                    {
+                        DestroyImmediate(child.transform.GetChild(j).gameObject);
+                    }
+
+                    DestroyImmediate(child);
+                }
             }
         }
     }
 
-    public void Generate()
+    private GameObject Generate(Vector2Int chunk, string id)
     {
-        DestroyOldTerrains();
+        string name = "Terrain_" + id;
 
-        GameObject terrain = new GameObject("Editor terrain");
+        GameObject terrain = new GameObject(name);
         terrain.transform.parent = transform;
 
-        var heightMap = GenerateHeightMap(terrainSettings);
+        var group = terrain.AddComponent<LODGroup>();
 
-        var mf = terrain.AddComponent<MeshFilter>();
-        mf.mesh = GenerateMesh(terrainSettings, heightMap);
+        LOD[] lods = new LOD[terrainSettings.numberOfLODS];
 
-        var mr = terrain.AddComponent<MeshRenderer>();
-
-        var terrainMaterial = new Material(terrainShader);
-
-        terrainMaterial.SetTexture("HeightMap", heightMap);
+        var heightMap = GenerateHeightMap(terrainSettings, chunk);
         
+        var mat = new Material(terrainMaterial);
         
-        mr.material = terrainMaterial;
+        var albedo = GenerateAlbedo(heightMap);
+        mat.SetTexture("_MainTex", albedo);
 
-        heightMap.Release();
+        for (int lod = 0; lod < terrainSettings.numberOfLODS; lod++)
+        {
+            GameObject go = new GameObject(name + "_LOD" + lod);
+            go.transform.parent = terrain.transform;
+
+            var mf = go.AddComponent<MeshFilter>();
+            mf.mesh = GenerateMesh(terrainSettings, heightMap, lod);
+
+            var mr = go.AddComponent<MeshRenderer>();
+            mr.material = mat;
+
+            float frac = Mathf.Exp(-lod);
+
+            lods[lod] = new LOD(frac, new Renderer[] { mr });
+        }
+
+        group.SetLODs(lods);
+        group.RecalculateBounds();
+
+        heightMap.texture.Release();
+
+        terrain.transform.position = terrainSettings.chunkSize * new Vector3(chunk.x, 0, chunk.y);
+
+        return terrain;
     }
 
-    void Start()
+    private void UpdateChunks()
+    {
+        if (terrainSettings.loadDistance > terrainSettings.unloadDistance)
+            terrainSettings.unloadDistance = terrainSettings.loadDistance;
+
+        Vector2 worldCenter = new Vector2(terrainSettings.worldCenter.position.x, terrainSettings.worldCenter.position.z);
+
+        Vector2 minPos = worldCenter - terrainSettings.unloadDistance * Vector2.one;
+        Vector2 maxPos = worldCenter + terrainSettings.unloadDistance * Vector2.one;
+
+        Vector2Int min = Vector2Int.FloorToInt(minPos / terrainSettings.chunkSize);
+        Vector2Int max = Vector2Int.CeilToInt(maxPos / terrainSettings.chunkSize);
+
+        for (int y = min.y; y < max.y; y++)
+        {
+            for (int x = min.x; x < max.x; x++)
+            {
+                Vector2Int position = new Vector2Int(x, y);
+
+                float sqrDistance = (terrainSettings.chunkSize * (Vector2)position - worldCenter).sqrMagnitude;
+
+                if (sqrDistance < terrainSettings.loadDistance * terrainSettings.loadDistance)
+                {
+                    if (chunks.ContainsKey(position))
+                    {
+                        chunks[position].go.SetActive(true);
+                    }
+                    else
+                    {
+                        GameObject go = Generate(position, $"({position.x},{position.y})");
+
+                        Chunk chunk = new Chunk
+                        {
+                            position = position,
+                            go = go,
+                        };
+
+                        chunks.Add(position, chunk);
+                    }
+                }
+                else if (sqrDistance > terrainSettings.unloadDistance * terrainSettings.unloadDistance)
+                {
+                    if (chunks.ContainsKey(position))
+                    {
+                        chunks[position].go.SetActive(false);
+                    }
+                }
+            }
+        }
+    }
+
+    private void Start()
     {
         DestroyOldTerrains();
     }
 
     private void Update()
     {
-        
+        UpdateChunks();
+    }
+
+    public void GenerateEditorTerrain()
+    {
+        if (!Application.isPlaying)
+        {
+            DestroyOldTerrains();
+            Generate(Vector2Int.zero, "Editor");
+        }
+    }
+
+    private void OnDrawGizmos()
+    {
+        if (terrainSettings.displayBounds)
+        {
+            Gizmos.color = Color.green;
+            Gizmos.DrawWireSphere(terrainSettings.worldCenter.position, terrainSettings.loadDistance);
+
+            Gizmos.color = Color.red;
+            Gizmos.DrawWireSphere(terrainSettings.worldCenter.position, terrainSettings.unloadDistance);
+        }
     }
 }

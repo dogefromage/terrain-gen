@@ -16,15 +16,15 @@ public class TerrainGeneratorInspector : Editor
 
         if (EditorGUI.EndChangeCheck())
         {
-            if (script.autoUpdate)
+            if (script.autoUpdate && !Application.isPlaying)
             {
-                script.Generate();
+                script.GenerateEditorTerrain();
             }
         }
 
         if (GUILayout.Button("Generate"))
         {
-            script.Generate();
+            script.GenerateEditorTerrain();
         }
     }
 

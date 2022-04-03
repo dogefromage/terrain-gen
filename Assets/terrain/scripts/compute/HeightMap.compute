@@ -1,12 +1,17 @@
 #pragma kernel CSMain
 #include "Includes/Noise.compute"
-#include "Coordinates.compute"
+#include "TerrainUtils.compute"
 
-int seed;
-int N;
+uint N;
+uint seam;
+uint textureRes;
 float size;
 
+int2 chunk;
+
 RWTexture2D<float> HeightMap;
+
+int seed;
 
 int base_octaves;
 float base_amplitude;
@@ -55,9 +60,11 @@ float octaveNoise(float2 pos, int octaves, float persistence, float lacunarity)
 [numthreads(8,8,1)]
 void CSMain (uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= N || id.y >= N) return;
+    if (id.x >= textureRes || id.y >= textureRes) return;
 
-    float2 pos = calculatePosition(id, N, size);
+    float2 pos = calculatePosition(id.xy - seam, N, size);
+
+    pos += size * chunk;
 
     float ridgeNoise = ridge_amplitude * octaveNoise(ridge_scale * pos, ridge_octaves, ridge_persistence, ridge_lacunarity);
     float ridgeHeight = ridgeNoise + ridgeOffset;

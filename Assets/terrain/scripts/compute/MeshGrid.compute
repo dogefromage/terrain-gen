@@ -1,30 +1,58 @@
-#pragma kernel CSMain
-#include "Coordinates.compute"
+#pragma kernel GenerateMesh
+
+#include "TerrainUtils.compute"
 
 Texture2D<float> HeightMap;
 
 RWStructuredBuffer<float3> vertices;
 RWStructuredBuffer<float3> normals;
-RWStructuredBuffer<uint> triangles;
+RWStructuredBuffer<int> triangles;
+RWStructuredBuffer<float2> uvs;
 
-int N;
+uint N;
 float size;
+uint step;
+uint seam;
+
+float3 calcVert(int2 id)
+{
+    float2 pos = calculatePosition(id.xy, N, size);
+
+    int2 heightMapId = step * id.xy + seam;
+
+    float height = HeightMap[heightMapId];
+
+    return float3(pos.x, height, pos.y);
+}
 
 [numthreads(8,8,1)]
-void CSMain (uint3 id : SV_DispatchThreadID)
+void GenerateMesh(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= N || id.y >= N) return;
 
-    float2 pos = calculatePosition(id, N, size);
-
-    float height = HeightMap[id.xy];
-
-    float3 vert = float3(pos.x, height, pos.y);
-
     int vertIndex = N * id.y + id.x;
 
-    vertices[vertIndex] = vert;
-    normals[vertIndex] = float3(0, 1., 0);
+    vertices[vertIndex] = calcVert(id.xy);
+
+    // normal
+
+    float3 perpendicular = cross(
+        calcVert(id.xy + int2(0, 1)) - calcVert(id.xy - int2(0, 1)),
+        calcVert(id.xy + int2(1, 0)) - calcVert(id.xy - int2(1, 0))
+    );
+
+    float3 diagonal = cross(
+        calcVert(id.xy + int2(1, 1)) - calcVert(id.xy - int2(1, 1)),
+        calcVert(id.xy + int2(1, -1)) - calcVert(id.xy - int2(1, -1))
+    );
+
+    normals[vertIndex] = normalize(perpendicular + 0.5 * diagonal);
+
+    // uv
+
+    uvs[vertIndex] = id.xy / (float)N;
+
+    // tris
 
     if (id.y < N - 1 && id.x < N - 1)
     {
