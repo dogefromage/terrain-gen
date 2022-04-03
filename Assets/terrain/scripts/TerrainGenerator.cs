@@ -13,29 +13,6 @@ public class NoiseSettings
 }
 
 [System.Serializable]
-public struct HeightColor
-{
-    public Color color;
-    public float height;
-    public float blend;
-}
-
-[System.Serializable]
-public class TextureSettings
-{
-    public int resolution = 512;
-
-    public float minHeight = -10;
-    public float maxHeight = 10;
-
-    public float steepBlendStart = 1;
-    public float steepBlendEnd = 2;
-
-    public HeightColor[] heightColors;
-    public HeightColor[] steepColors;
-}
-
-[System.Serializable]
 public class TerrainLOD
 {
     public int resolution = 128;
@@ -61,9 +38,6 @@ public class TerrainSettings
     public bool displayRidge = false;
 
     public bool recalcNormals = false;
-
-    [Header("Texturing")]
-    public TextureSettings textureSettings;
 
     [Header("Loading")]
     public Transform worldCenter;
@@ -94,7 +68,7 @@ public class TerrainGenerator : MonoBehaviour
 
     public ComputeShader meshGridCompute;
     public ComputeShader heightMapCompute;
-    public ComputeShader albedoCompute;
+    //public ComputeShader albedoCompute;
 
     public Material terrainMaterial;
 
@@ -220,52 +194,52 @@ public class TerrainGenerator : MonoBehaviour
 
         return mesh;
     }
+    
+    //private RenderTexture GenerateAlbedo(HeightMap heightMap)
+    //{
+    //    int resolution = terrainSettings.textureSettings.resolution;
 
-    private RenderTexture GenerateAlbedo(HeightMap heightMap)
-    {
-        int resolution = terrainSettings.textureSettings.resolution;
+    //    var rt = new RenderTexture(resolution, resolution, 1)
+    //    {
+    //        enableRandomWrite = true,
+    //        format = RenderTextureFormat.ARGBFloat,
+    //    };
 
-        var rt = new RenderTexture(resolution, resolution, 1)
-        {
-            enableRandomWrite = true,
-            format = RenderTextureFormat.ARGBFloat,
-        };
+    //    int albedoKernel = 0;
 
-        int albedoKernel = 0;
+    //    albedoCompute.SetTexture(albedoKernel, "HeightMap", heightMap.texture);
+    //    albedoCompute.SetInt("heightMapN", heightMap.baseN);
+    //    albedoCompute.SetInt("heightMapSeam", heightMap.seam);
 
-        albedoCompute.SetTexture(albedoKernel, "HeightMap", heightMap.texture);
-        albedoCompute.SetInt("heightMapN", heightMap.baseN);
-        albedoCompute.SetInt("heightMapSeam", heightMap.seam);
+    //    albedoCompute.SetFloat("size", terrainSettings.chunkSize);
 
-        albedoCompute.SetFloat("size", terrainSettings.chunkSize);
+    //    albedoCompute.SetTexture(albedoKernel, "Texture", rt);
+    //    albedoCompute.SetInt("resolution", resolution);
+    //    albedoCompute.SetFloat("minHeight", terrainSettings.textureSettings.minHeight);
+    //    albedoCompute.SetFloat("maxHeight", terrainSettings.textureSettings.maxHeight);
 
-        albedoCompute.SetTexture(albedoKernel, "Texture", rt);
-        albedoCompute.SetInt("resolution", resolution);
-        albedoCompute.SetFloat("minHeight", terrainSettings.textureSettings.minHeight);
-        albedoCompute.SetFloat("maxHeight", terrainSettings.textureSettings.maxHeight);
+    //    albedoCompute.SetFloat("steepBlendStart", terrainSettings.textureSettings.steepBlendStart);
+    //    albedoCompute.SetFloat("steepBlendEnd", terrainSettings.textureSettings.steepBlendEnd);
 
-        albedoCompute.SetFloat("steepBlendStart", terrainSettings.textureSettings.steepBlendStart);
-        albedoCompute.SetFloat("steepBlendEnd", terrainSettings.textureSettings.steepBlendEnd);
+    //    int heightColorCount = terrainSettings.textureSettings.heightColors.Length;
+    //    ComputeBuffer heightColorBuffer = new ComputeBuffer(heightColorCount, 6 * sizeof(float));
+    //    heightColorBuffer.SetData(terrainSettings.textureSettings.heightColors);
+    //    albedoCompute.SetBuffer(albedoKernel, "HeightColors", heightColorBuffer);
+    //    albedoCompute.SetInt("heightColorCount", heightColorCount);
 
-        int heightColorCount = terrainSettings.textureSettings.heightColors.Length;
-        ComputeBuffer heightColorBuffer = new ComputeBuffer(heightColorCount, 6 * sizeof(float));
-        heightColorBuffer.SetData(terrainSettings.textureSettings.heightColors);
-        albedoCompute.SetBuffer(albedoKernel, "HeightColors", heightColorBuffer);
-        albedoCompute.SetInt("heightColorCount", heightColorCount);
+    //    int steepColorCount = terrainSettings.textureSettings.steepColors.Length;
+    //    ComputeBuffer steepColorBuffer = new ComputeBuffer(steepColorCount, 6 * sizeof(float));
+    //    steepColorBuffer.SetData(terrainSettings.textureSettings.steepColors);
+    //    albedoCompute.SetBuffer(albedoKernel, "SteepColors", steepColorBuffer);
+    //    albedoCompute.SetInt("steepColorCount", steepColorCount);
 
-        int steepColorCount = terrainSettings.textureSettings.steepColors.Length;
-        ComputeBuffer steepColorBuffer = new ComputeBuffer(steepColorCount, 6 * sizeof(float));
-        steepColorBuffer.SetData(terrainSettings.textureSettings.steepColors);
-        albedoCompute.SetBuffer(albedoKernel, "SteepColors", steepColorBuffer);
-        albedoCompute.SetInt("steepColorCount", steepColorCount);
+    //    ComputeHelper.Dispatch(albedoCompute, resolution, resolution);
 
-        ComputeHelper.Dispatch(albedoCompute, resolution, resolution);
+    //    heightColorBuffer.Dispose();
+    //    steepColorBuffer.Dispose();
 
-        heightColorBuffer.Dispose();
-        steepColorBuffer.Dispose();
-
-        return rt;
-    }
+    //    return rt;
+    //}
 
     private void DestroyOldTerrains()
     {
@@ -312,10 +286,10 @@ public class TerrainGenerator : MonoBehaviour
 
         var heightMap = GenerateHeightMap(terrainSettings, chunk);
         
-        var mat = new Material(terrainMaterial);
+        //var mat = new Material(terrainMaterial);
         
-        var albedo = GenerateAlbedo(heightMap);
-        mat.SetTexture("_MainTex", albedo);
+        //var albedo = GenerateAlbedo(heightMap);
+        //mat.SetTexture("_MainTex", albedo);
 
         for (int lod = 0; lod < terrainSettings.numberOfLODS; lod++)
         {
@@ -326,7 +300,7 @@ public class TerrainGenerator : MonoBehaviour
             mf.mesh = GenerateMesh(terrainSettings, heightMap, lod);
 
             var mr = go.AddComponent<MeshRenderer>();
-            mr.material = mat;
+            mr.material = terrainMaterial;
 
             float frac = Mathf.Exp(-lod);
 
