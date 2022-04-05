@@ -22,6 +22,7 @@ public class TerrainMaterialSettings
     public HeightColor[] baseColors;
     public HeightColor[] steepColors;
 }
+
 public class TerrainMaterialProgrammer : MonoBehaviour
 {
     public TerrainMaterialSettings settings;
@@ -43,7 +44,7 @@ public class TerrainMaterialProgrammer : MonoBehaviour
             base_blends[i] = hc.blend;
         }
 
-        terrainMaterial.SetFloat("_base_N", base_N);
+        terrainMaterial.SetInt("_base_N", base_N);
         terrainMaterial.SetColorArray("_base_colors", base_colors);
         terrainMaterial.SetFloatArray("_base_heights", base_heights);
         terrainMaterial.SetFloatArray("_base_blends", base_blends);
@@ -61,7 +62,7 @@ public class TerrainMaterialProgrammer : MonoBehaviour
             steep_blends[i] = hc.blend;
         }
 
-        terrainMaterial.SetFloat("_steep_N", steep_N);
+        terrainMaterial.SetInt("_steep_N", steep_N);
         terrainMaterial.SetColorArray("_steep_colors", steep_colors);
         terrainMaterial.SetFloatArray("_steep_heights", steep_heights);
         terrainMaterial.SetFloatArray("_steep_blends", steep_blends);

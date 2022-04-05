@@ -8,9 +8,11 @@ public class TerrainMaterialProgrammerInspector : Editor
 {
     public override void OnInspectorGUI()
     {
+        EditorGUI.BeginChangeCheck();
+
         base.OnInspectorGUI();
 
-        if (GUILayout.Button("Program settings"))
+        if (GUILayout.Button("Program settings") || EditorGUI.EndChangeCheck())
         {
             var script = (TerrainMaterialProgrammer)target;
 

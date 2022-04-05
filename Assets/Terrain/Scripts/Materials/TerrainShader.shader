@@ -17,13 +17,13 @@ Shader "Custom/TerrainShader"
         #pragma target 3.0
 
         int _base_N;
-        float _base_colors[8];
-        float _base_heights;
-        float _base_blends;
+        float3 _base_colors[8];
+        float _base_heights[8];
+        float _base_blends[8];
         int _steep_N;
-        float _steep_colors[8];
-        float _steep_heights;
-        float _steep_blends;
+        float3 _steep_colors[8];
+        float _steep_heights[8];
+        float _steep_blends[8];
         float _minHeight;
         float _maxHeight;
         float _steepBlendStart;
@@ -32,25 +32,33 @@ Shader "Custom/TerrainShader"
         struct Input
         {
             float3 worldNormal;
+            float3 worldPos;
         };
 
         UNITY_INSTANCING_BUFFER_START(Props)
         UNITY_INSTANCING_BUFFER_END(Props)
 
+        float inverseLerp(float a, float b, float t)
+        {
+            return saturate((t - a) / (b - a));
+        }
+
         void surf (Input IN, inout SurfaceOutputStandard o)
         {
-            float4 baseColor = float4(0, 0, 0, 1);
+            float3 base_final = float3(0, 0, 0);
+            
+            float normHeight = inverseLerp(_minHeight, _maxHeight, IN.worldPos.y);
 
-            for (int i = 0; i < heightColorCount; i++)
+            for (int i = 0; i < _base_N; i++)
             {
-                HeightColor hc = HeightColors[i];
-                float normHeight = inverseLerp(minHeight, maxHeight, rawHeight);
-                float blend = saturate(hc.blend * (normHeight - hc.height));
+                float blend = saturate(_base_blends[i] * (normHeight - _base_heights[i]));
 
-                baseColor = (1 - blend) * baseColor + blend * hc.color;
+                base_final = (1 - blend) * base_final + blend * _base_colors[i];
             }
 
-            o.Albedo = baseColor;
+            o.Albedo = base_final;
+
+            //o.Albedo = float3(normHeight, normHeight, normHeight);
 
             o.Alpha = 1;
         }
