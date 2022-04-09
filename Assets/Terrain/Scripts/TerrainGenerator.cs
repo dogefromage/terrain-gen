@@ -3,6 +3,16 @@ using System.Collections.Generic;
 using UnityEngine;
 
 [System.Serializable]
+public class FalloffSettings
+{
+    public float radius = 1000;
+    public Vector2 center = Vector2.zero;
+    public float minHeight = -50;
+    public float maxHeight = 100;
+    public float falloffPower = 1.5f;
+}
+
+[System.Serializable]
 public class NoiseSettings
 {
     public int octaves = 5;
@@ -31,6 +41,7 @@ public class TerrainSettings
     public int numberOfLODS = 3;
 
     [Header("Generation")]
+    public FalloffSettings falloff;
     public NoiseSettings baseHeight;
     public NoiseSettings ridgeHeight;
 
@@ -100,6 +111,12 @@ public class TerrainGenerator : MonoBehaviour
         heightMapCompute.SetTexture(heightMapKernel, "HeightMap", heightMap);
 
         heightMapCompute.SetInt("seed", settings.seed);
+
+        heightMapCompute.SetFloat("falloff_radius", settings.falloff.radius);
+        heightMapCompute.SetVector("falloff_center", settings.falloff.center);
+        heightMapCompute.SetFloat("falloff_minHeight", settings.falloff.minHeight);
+        heightMapCompute.SetFloat("falloff_maxHeight", settings.falloff.maxHeight);
+        heightMapCompute.SetFloat("falloff_falloffPower", settings.falloff.falloffPower);
 
         heightMapCompute.SetInt("base_octaves", settings.baseHeight.octaves);
         heightMapCompute.SetFloat("base_amplitude", settings.baseHeight.amplitude);

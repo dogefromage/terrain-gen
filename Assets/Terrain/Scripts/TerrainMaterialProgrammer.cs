@@ -16,13 +16,15 @@ public class TerrainMaterialSettings
     public float minHeight = -10;
     public float maxHeight = 10;
 
-    public float steepBlendStart = 1;
-    public float steepBlendEnd = 2;
+    public float steepBlendThreshold = 0.707f;
+    public float steepBlendBlend = 0.05f;
 
     public HeightColor[] baseColors;
-    public HeightColor[] steepColors;
+    //public HeightColor[] steepColors;
+    public Color steepColor;
 }
 
+[ExecuteInEditMode]
 public class TerrainMaterialProgrammer : MonoBehaviour
 {
     public TerrainMaterialSettings settings;
@@ -31,6 +33,8 @@ public class TerrainMaterialProgrammer : MonoBehaviour
 
     public void Program()
     {
+        if (terrainMaterial == null || settings == null) return;
+
         int base_N = Mathf.Min(8, settings.baseColors.Length);
         Color[] base_colors = new Color[base_N];
         float[] base_heights = new float[base_N];
@@ -49,28 +53,35 @@ public class TerrainMaterialProgrammer : MonoBehaviour
         terrainMaterial.SetFloatArray("_base_heights", base_heights);
         terrainMaterial.SetFloatArray("_base_blends", base_blends);
 
-        int steep_N = Mathf.Min(8, settings.steepColors.Length);
-        Color[] steep_colors = new Color[steep_N];
-        float[] steep_heights = new float[steep_N];
-        float[] steep_blends = new float[steep_N];
+        //int steep_N = Mathf.Min(8, settings.steepColors.Length);
+        //Color[] steep_colors = new Color[steep_N];
+        //float[] steep_heights = new float[steep_N];
+        //float[] steep_blends = new float[steep_N];
 
-        for (int i = 0; i < steep_N; i++)
-        {
-            HeightColor hc = settings.baseColors[i];
-            steep_colors[i] = hc.color;
-            steep_heights[i] = hc.height;
-            steep_blends[i] = hc.blend;
-        }
+        //for (int i = 0; i < steep_N; i++)
+        //{
+        //    HeightColor hc = settings.baseColors[i];
+        //    steep_colors[i] = hc.color;
+        //    steep_heights[i] = hc.height;
+        //    steep_blends[i] = hc.blend;
+        //}
 
-        terrainMaterial.SetInt("_steep_N", steep_N);
-        terrainMaterial.SetColorArray("_steep_colors", steep_colors);
-        terrainMaterial.SetFloatArray("_steep_heights", steep_heights);
-        terrainMaterial.SetFloatArray("_steep_blends", steep_blends);
+        //terrainMaterial.SetInt("_steep_N", steep_N);
+        //terrainMaterial.SetColorArray("_steep_colors", steep_colors);
+        //terrainMaterial.SetFloatArray("_steep_heights", steep_heights);
+        //terrainMaterial.SetFloatArray("_steep_blends", steep_blends);
+
+        terrainMaterial.SetColor("_steep_color", settings.steepColor);
 
         terrainMaterial.SetFloat("_minHeight", settings.minHeight);
         terrainMaterial.SetFloat("_maxHeight", settings.maxHeight);
 
-        terrainMaterial.SetFloat("_steepBlendStart", settings.steepBlendStart);
-        terrainMaterial.SetFloat("_steepBlendEnd", settings.steepBlendEnd);
+        terrainMaterial.SetFloat("_steepBlendThreshold", settings.steepBlendThreshold);
+        terrainMaterial.SetFloat("_steepBlendBlend", settings.steepBlendBlend);
+    }
+
+    private void Awake()
+    {
+        Program();
     }
 }

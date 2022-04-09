@@ -13,6 +13,12 @@ RWTexture2D<float> HeightMap;
 
 int seed;
 
+float falloff_radius;
+float2 falloff_center;
+float falloff_minHeight;
+float falloff_maxHeight;
+float falloff_falloffPower;
+
 int base_octaves;
 float base_amplitude;
 float base_scale;
@@ -57,6 +63,22 @@ float octaveNoise(float2 pos, int octaves, float persistence, float lacunarity)
     return noiseSum / ampSum;
 }
 
+float calculateFalloff(float2 pos)
+{
+    float dist = length(pos - falloff_center);
+
+    float t = pow(1 - saturate(dist / falloff_radius), falloff_falloffPower);
+
+    float tt = t * t * (3 - 2 * t);
+        
+    return t * (falloff_maxHeight - falloff_minHeight) + falloff_minHeight;
+}
+
+float basicRidge(float x)
+{
+    return 1 - abs(2 * x - 1);
+}
+
 [numthreads(8,8,1)]
 void CSMain (uint3 id : SV_DispatchThreadID)
 {
@@ -65,6 +87,8 @@ void CSMain (uint3 id : SV_DispatchThreadID)
     float2 pos = calculatePosition(id.xy - seam, N, size);
 
     pos += size * chunk;
+
+    float falloff = calculateFalloff(pos);
 
     float ridgeNoise = ridge_amplitude * octaveNoise(ridge_scale * pos, ridge_octaves, ridge_persistence, ridge_lacunarity);
     float ridgeHeight = ridgeNoise + ridgeOffset;
@@ -77,5 +101,7 @@ void CSMain (uint3 id : SV_DispatchThreadID)
         return;
     }
 
-    HeightMap[id.xy] = ridge(baseHeight, ridgeHeight);
+    //HeightMap[id.xy] = falloff + ridge(baseHeight, ridgeHeight);
+
+    HeightMap[id.xy] = falloff + baseHeight + basicRidge(ridgeHeight);
 }
